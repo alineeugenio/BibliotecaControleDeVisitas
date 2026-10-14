@@ -1,0 +1,10 @@
+{
+  "description": "Manage library visits with a user-friendly interface that tracks student attendance, rewards points, and showcases top-rated books for an engaging experience.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
