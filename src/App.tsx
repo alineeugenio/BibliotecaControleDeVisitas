@@ -1,30 +1,34 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-type Screen = "checkin" | "books" | "frequency";
+type Screen = "checkin" | "books" | "score" | "frequency" | "goals";
 
-const books = [
-  {
-    title: "Torto Arado",
-    author: "Itamar Vieira Junior",
-    category: "Literatura brasileira",
-    average: 9.7,
-    color: "bg-[#d94c47]",
-  },
-  {
-    title: "O Pequeno Príncipe",
-    author: "Antoine de Saint-Exupéry",
-    category: "Clássico",
-    average: 9.5,
-    color: "bg-[#e4a937]",
-  },
-  {
-    title: "Quarto de Despejo",
-    author: "Carolina Maria de Jesus",
-    category: "Memórias",
-    average: 9.3,
-    color: "bg-[#347b67]",
-  },
-];
+type Student = {
+  matricula: string;
+  nome: string;
+  pontuacao: string;
+};
+
+type ApiBook = {
+  titulo: string;
+  autor: string;
+  nota: string;
+  id_aluno: string;
+};
+
+type Coordinator = {
+  nome: string;
+  email: string;
+  senha: string;
+};
+
+type Goal = {
+  id: number;
+  pontuacao: number;
+  titulo: string;
+  texto: string;
+};
+
+const API_URL = "https://desafio-biblioteca-api.onrender.com";
 
 const attendance = [
   { month: "Fev", value: 52 },
@@ -33,27 +37,6 @@ const attendance = [
   { month: "Mai", value: 82 },
   { month: "Jun", value: 74 },
   { month: "Jul", value: 92 },
-];
-
-const studentRanking = [
-  { name: "Ana Clara Ribeiro", registration: "2024.01093", visits: 28, points: 280 },
-  { name: "Lucas Gabriel Costa", registration: "2024.01427", visits: 25, points: 250 },
-  { name: "Mariana Oliveira Santos", registration: "2024.01842", visits: 23, points: 230 },
-  { name: "João Pedro Almeida", registration: "2024.00981", visits: 21, points: 210 },
-  { name: "Beatriz Souza Lima", registration: "2024.01654", visits: 19, points: 190 },
-];
-
-const bookCatalog = [
-  "A Bolsa Amarela",
-  "A Hora da Estrela",
-  "Capitães da Areia",
-  "Dom Casmurro",
-  "Extraordinário",
-  "Memórias Póstumas de Brás Cubas",
-  "O Cortiço",
-  "O Pequeno Príncipe",
-  "Quarto de Despejo",
-  "Torto Arado",
 ];
 
 function Icon({
@@ -113,23 +96,36 @@ function Icon({
 
 function Header({
   screen,
+  coordinatorLoggedIn,
+  studentLoggedIn,
+  scoreUnlocked,
   onNavigate,
 }: {
   screen: Screen;
+  coordinatorLoggedIn: boolean;
+  studentLoggedIn: boolean;
+  scoreUnlocked: boolean;
   onNavigate: (screen: Screen) => void;
 }) {
-  const steps: { id: Screen; label: string }[] = [
-    { id: "checkin", label: "Entrada" },
-    { id: "books", label: "Avaliações" },
-    { id: "frequency", label: "Frequência" },
-  ];
+  const steps: { id: Screen; label: string }[] = coordinatorLoggedIn
+    ? [
+        { id: "goals", label: "Metas" },
+        { id: "frequency", label: "Frequência" },
+      ]
+    : studentLoggedIn
+      ? [
+          { id: "checkin", label: "Entrada" },
+          { id: "books", label: "Avaliações" },
+          ...(scoreUnlocked ? [{ id: "score" as Screen, label: "Pontuação" }] : []),
+        ]
+      : [{ id: "checkin", label: "Entrada" }];
 
   return (
     <header className="border-b border-[#dbe7e0] bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
         <button
           className="flex items-center gap-3 text-left"
-          onClick={() => onNavigate("checkin")}
+          onClick={() => onNavigate(coordinatorLoggedIn ? "goals" : "checkin")}
           type="button"
         >
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#116149] text-white">
@@ -178,11 +174,45 @@ function Header({
   );
 }
 
-function CheckInScreen({ onContinue }: { onContinue: () => void }) {
-  const [identified, setIdentified] = useState(false);
+function CheckInScreen({
+  students = [],
+  apiBooks = [],
+  coordinators = [],
+  loading,
+  apiError,
+  currentStudent,
+  onIdentify,
+  onCoordinatorLogin,
+  onBack,
+  onContinue,
+}: {
+  students: Student[];
+  apiBooks: ApiBook[];
+  coordinators: Coordinator[];
+  loading: boolean;
+  apiError: string;
+  currentStudent: Student | null;
+  onIdentify: (student: Student) => void;
+  onCoordinatorLogin: (coordinator: Coordinator) => void;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  const [identified, setIdentified] = useState(Boolean(currentStudent));
+  const [loginMode, setLoginMode] = useState<"student" | "coordinator">("student");
+  const [registration, setRegistration] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [selectedAction, setSelectedAction] = useState<"add" | "return" | null>(null);
   const [bookQuery, setBookQuery] = useState("");
   const [selectedBook, setSelectedBook] = useState("");
+  const safeStudents = Array.isArray(students) ? students : [];
+  const safeBooks = Array.isArray(apiBooks) ? apiBooks : [];
+  const safeCoordinators = Array.isArray(coordinators) ? coordinators : [];
+  const bookCatalog = Array.from(new Set(safeBooks.map((book) => book.titulo))).sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
   const confetti = Array.from({ length: 70 }, (_, index) => ({
     left: `${(index * 37) % 100}%`,
     delay: `${(index % 14) * 0.07}s`,
@@ -205,6 +235,50 @@ function CheckInScreen({ onContinue }: { onContinue: () => void }) {
   const selectBook = (title: string) => {
     setBookQuery(title);
     setSelectedBook(title);
+  };
+
+  const returnToLogin = () => {
+    setIdentified(false);
+    setSelectedAction(null);
+    setBookQuery("");
+    setSelectedBook("");
+    onBack();
+  };
+
+  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginError("");
+
+    if (loginMode === "coordinator") {
+      const coordinator = safeCoordinators.find(
+        (item) =>
+          item.email.toLocaleLowerCase("pt-BR") === email.trim().toLocaleLowerCase("pt-BR") &&
+          item.senha === password,
+      );
+
+      if (!coordinator) {
+        setLoginError("E-mail ou senha inválidos. Confira os dados e tente novamente.");
+        return;
+      }
+
+      onCoordinatorLogin(coordinator);
+      return;
+    }
+
+    const normalizedFirstName = firstName.trim().toLocaleLowerCase("pt-BR");
+    const student = safeStudents.find(
+      (item) =>
+        item.matricula === registration.trim() &&
+        item.nome.split(" ")[0].toLocaleLowerCase("pt-BR") === normalizedFirstName,
+    );
+
+    if (!student) {
+      setLoginError("Matrícula ou primeiro nome não encontrados. Confira os dados e tente novamente.");
+      return;
+    }
+
+    onIdentify(student);
+    setIdentified(true);
   };
 
   return (
@@ -240,26 +314,146 @@ function CheckInScreen({ onContinue }: { onContinue: () => void }) {
                   Identificação
                 </p>
                 <h2 className="mt-2 text-2xl font-black tracking-tight text-[#123e32]">
-                  Aproxime o seu cartão
+                  {loginMode === "student" ? "Login do aluno" : "Login do coordenador"}
                 </h2>
                 <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-[#71847e]">
-                  Posicione o cartão do aluno próximo ao leitor para registrar sua entrada.
+                  {loginMode === "student"
+                    ? "Informe sua matrícula e seu primeiro nome para registrar a visita."
+                    : "Entre com o e-mail e a senha cadastrados para acessar as metas."}
                 </p>
-                <div className="mx-auto mt-7 flex w-36 justify-center gap-2">
-                  <span className="signal-bar h-1.5 w-7 rounded-full bg-[#116149]/25" />
-                  <span className="signal-bar h-1.5 w-7 rounded-full bg-[#116149]/50" />
-                  <span className="signal-bar h-1.5 w-7 rounded-full bg-[#116149]" />
+
+                <div className="mt-6 grid grid-cols-2 rounded-xl bg-[#eef4f1] p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginMode("student");
+                      setLoginError("");
+                    }}
+                    className={`rounded-lg px-3 py-2.5 text-xs font-extrabold transition ${
+                      loginMode === "student"
+                        ? "bg-white text-[#116149] shadow-sm"
+                        : "text-[#71847e]"
+                    }`}
+                  >
+                    Aluno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginMode("coordinator");
+                      setLoginError("");
+                    }}
+                    className={`rounded-lg px-3 py-2.5 text-xs font-extrabold transition ${
+                      loginMode === "coordinator"
+                        ? "bg-white text-[#116149] shadow-sm"
+                        : "text-[#71847e]"
+                    }`}
+                  >
+                    Coordenador
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIdentified(true)}
-                  className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15"
-                  type="button"
-                >
-                  Simular leitura do cartão
-                  <Icon name="card" className="h-4 w-4" />
-                </button>
+
+                <form className="mt-5 space-y-4 text-left" onSubmit={handleLogin}>
+                  {loginMode === "student" ? (
+                    <>
+                      <div>
+                        <label
+                          htmlFor="registration"
+                          className="mb-2 block text-xs font-extrabold text-[#405f55]"
+                        >
+                          Número da matrícula
+                        </label>
+                        <input
+                          id="registration"
+                          inputMode="numeric"
+                          value={registration}
+                          onChange={(event) => setRegistration(event.target.value)}
+                          placeholder="Ex.: 2026001"
+                          className="w-full rounded-xl border-2 border-[#b8d0c6] bg-white px-4 py-3 text-sm font-semibold text-[#123e32] outline-none transition placeholder:font-normal placeholder:text-[#9aaba5] focus:border-[#116149] focus:ring-4 focus:ring-[#116149]/10"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="first-name"
+                          className="mb-2 block text-xs font-extrabold text-[#405f55]"
+                        >
+                          Primeiro nome
+                        </label>
+                        <input
+                          id="first-name"
+                          value={firstName}
+                          onChange={(event) => setFirstName(event.target.value)}
+                          placeholder="Ex.: Marina"
+                          className="w-full rounded-xl border-2 border-[#b8d0c6] bg-white px-4 py-3 text-sm font-semibold text-[#123e32] outline-none transition placeholder:font-normal placeholder:text-[#9aaba5] focus:border-[#116149] focus:ring-4 focus:ring-[#116149]/10"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label
+                          htmlFor="coordinator-email"
+                          className="mb-2 block text-xs font-extrabold text-[#405f55]"
+                        >
+                          E-mail
+                        </label>
+                        <input
+                          id="coordinator-email"
+                          type="email"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          placeholder="nome@exemplo.com"
+                          className="w-full rounded-xl border-2 border-[#b8d0c6] bg-white px-4 py-3 text-sm font-semibold text-[#123e32] outline-none transition placeholder:font-normal placeholder:text-[#9aaba5] focus:border-[#116149] focus:ring-4 focus:ring-[#116149]/10"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="coordinator-password"
+                          className="mb-2 block text-xs font-extrabold text-[#405f55]"
+                        >
+                          Senha
+                        </label>
+                        <input
+                          id="coordinator-password"
+                          type="password"
+                          value={password}
+                          onChange={(event) => setPassword(event.target.value)}
+                          placeholder="Digite sua senha"
+                          className="w-full rounded-xl border-2 border-[#b8d0c6] bg-white px-4 py-3 text-sm font-semibold text-[#123e32] outline-none transition placeholder:font-normal placeholder:text-[#9aaba5] focus:border-[#116149] focus:ring-4 focus:ring-[#116149]/10"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {(loginError || apiError) && (
+                    <p
+                      role="alert"
+                      className="rounded-lg bg-[#fff1ef] px-3 py-2.5 text-xs font-semibold leading-5 text-[#a33f3a]"
+                    >
+                      {loginError || apiError}
+                    </p>
+                  )}
+
+                  <button
+                    disabled={
+                      loading ||
+                      (loginMode === "student"
+                        ? !registration.trim() || !firstName.trim()
+                        : !email.trim() || !password)
+                    }
+                    className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15 disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
+                    type="submit"
+                  >
+                    {loading
+                      ? "Carregando dados..."
+                      : loginMode === "student"
+                        ? "Entrar e registrar visita"
+                        : "Acessar metas"}
+                    <Icon name={loginMode === "student" ? "card" : "arrow"} className="h-4 w-4" />
+                  </button>
+                </form>
               </div>
-            ) : (
+            ) : currentStudent ? (
               <div className="text-center">
                 <div className="relative overflow-hidden rounded-2xl px-2 pb-4 pt-2">
                   <div
@@ -291,9 +485,11 @@ function CheckInScreen({ onContinue }: { onContinue: () => void }) {
                       Cartão identificado
                     </p>
                     <h2 className="mt-2 text-2xl font-black text-[#123e32]">
-                      Mariana Oliveira Santos
+                      {currentStudent.nome}
                     </h2>
-                    <p className="mt-1 text-sm text-[#71847e]">Matrícula 2024.01842</p>
+                    <p className="mt-1 text-sm text-[#71847e]">
+                      Matrícula {currentStudent.matricula}
+                    </p>
                   </div>
                 </div>
 
@@ -394,17 +590,26 @@ function CheckInScreen({ onContinue }: { onContinue: () => void }) {
                   </div>
                 )}
 
-                <button
-                  onClick={onContinue}
-                  disabled={!selectedAction || !selectedBook}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15 disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
-                  type="button"
-                >
-                  Continuar
-                  <Icon name="arrow" className="h-4 w-4" />
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={returnToLogin}
+                    className="rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#eef7f2] focus:outline-none focus:ring-4 focus:ring-[#116149]/15"
+                    type="button"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    onClick={onContinue}
+                    disabled={!selectedAction || !selectedBook}
+                    className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15 disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
+                    type="button"
+                  >
+                    Continuar
+                    <Icon name="arrow" className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-            )}
+            ) : null}
           </div>
         </section>
       </div>
@@ -412,8 +617,19 @@ function CheckInScreen({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-function BooksScreen({ onContinue }: { onContinue: () => void }) {
+function BooksScreen({ apiBooks = [], onContinue }: { apiBooks?: ApiBook[]; onContinue: () => void }) {
   const [ratings, setRatings] = useState<Record<number, number>>({});
+  const hasRating = Object.keys(ratings).length > 0;
+  const colors = ["bg-[#d94c47]", "bg-[#e4a937]", "bg-[#347b67]"];
+  const books = [...(Array.isArray(apiBooks) ? apiBooks : [])]
+    .sort((a, b) => Number.parseFloat(b.nota) - Number.parseFloat(a.nota))
+    .map((book, index) => ({
+      title: book.titulo,
+      author: book.autor,
+      category: "Acervo da biblioteca",
+      average: (Number.parseFloat(book.nota) * 2).toFixed(1),
+      color: colors[index % colors.length],
+    }));
 
   return (
     <main className="flex-1 px-5 py-10 sm:px-8">
@@ -424,23 +640,25 @@ function BooksScreen({ onContinue }: { onContinue: () => void }) {
               Comunidade leitora
             </p>
             <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
-              Livros mais bem votados
+              Relação completa de livros
             </h1>
             <p className="mt-3 max-w-2xl text-[#697f77]">
-              Conte como foi sua leitura. Escolha uma nota de 0 a 10 para cada livro lido.
+              Todos os títulos disponíveis na API, ordenados pela nota. Avalie de 0 a 10 os livros
+              que você já leu.
             </p>
           </div>
           <button
             type="button"
             onClick={onContinue}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white"
+            disabled={!hasRating}
+            className="flex shrink-0 items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
           >
-            Ver minha frequência
+            {hasRating ? "Ver minha pontuação" : "Avalie um livro para continuar"}
             <Icon name="arrow" className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mt-10 grid gap-5 lg:grid-cols-3">
+        <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {books.map((book, index) => (
             <article
               key={book.title}
@@ -506,8 +724,117 @@ function BooksScreen({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-function FrequencyScreen({ onRestart }: { onRestart: () => void }) {
+function StudentScoreScreen({
+  student,
+  goals,
+  onBack,
+}: {
+  student: Student;
+  goals: Goal[];
+  onBack: () => void;
+}) {
+  const currentPoints = Number.parseInt(student.pontuacao, 10) + 10;
+  const safePoints = Number.isNaN(currentPoints) ? 10 : currentPoints;
+  const achievedGoals = (Array.isArray(goals) ? goals : [])
+    .filter((goal) => safePoints >= goal.pontuacao)
+    .sort((a, b) => a.pontuacao - b.pontuacao);
+  const nextGoal = (Array.isArray(goals) ? goals : [])
+    .filter((goal) => safePoints < goal.pontuacao)
+    .sort((a, b) => a.pontuacao - b.pontuacao)[0];
+
+  return (
+    <main className="flex-1 px-5 py-10 sm:px-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#d94c47]">
+              Jornada de leitura
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
+              Sua pontuação
+            </h1>
+            <p className="mt-3 text-[#697f77]">
+              {student.nome}, confira seu progresso e suas conquistas.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-xl border-2 border-[#116149] bg-white px-5 py-3 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white"
+          >
+            Voltar aos livros
+          </button>
+        </div>
+
+        <section className="mt-9 overflow-hidden rounded-[2rem] bg-[#116149] p-7 text-white sm:p-10">
+          <div className="grid items-center gap-8 md:grid-cols-[1fr_auto]">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">
+                Pontuação individual
+              </p>
+              <p className="mt-3 text-6xl font-black tracking-[-0.05em]">{safePoints}</p>
+              <p className="mt-2 text-sm text-white/70">Inclui os 10 pontos desta visita</p>
+            </div>
+            {nextGoal ? (
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-6 py-5">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-white/65">
+                  Próxima conquista
+                </p>
+                <p className="mt-2 text-lg font-black">{nextGoal.titulo}</p>
+                <p className="mt-1 text-sm text-white/75">
+                  Faltam {nextGoal.pontuacao - safePoints} pontos
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-6 py-5">
+                <p className="text-lg font-black">Todas as metas alcançadas</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-2xl font-black text-[#123e32]">Conquistas alcançadas</h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            {achievedGoals.map((goal, index) => (
+              <article
+                key={goal.id}
+                className="rounded-2xl border border-[#d6e4de] bg-white p-6 shadow-[0_10px_35px_rgba(18,62,50,0.05)]"
+              >
+                <div
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                    index === 1 ? "bg-[#fff1ef] text-[#d94c47]" : "bg-[#eef7f2] text-[#116149]"
+                  }`}
+                >
+                  <Icon name={index === 0 ? "book" : index === 1 ? "star" : "chart"} />
+                </div>
+                <span className="mt-5 block text-xs font-extrabold uppercase tracking-[0.14em] text-[#d94c47]">
+                  {goal.pontuacao} pontos
+                </span>
+                <h3 className="mt-2 text-xl font-black text-[#123e32]">{goal.titulo}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#71867e]">{goal.texto}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function FrequencyScreen({
+  students = [],
+  currentStudent,
+  onBack,
+}: {
+  students: Student[];
+  currentStudent: Student | null;
+  onBack: () => void;
+}) {
   const [showRanking, setShowRanking] = useState(false);
+  const studentRanking = [...(Array.isArray(students) ? students : [])].sort(
+    (a, b) => Number.parseInt(b.pontuacao, 10) - Number.parseInt(a.pontuacao, 10),
+  );
 
   return (
     <main className="flex-1 px-5 py-10 sm:px-8">
@@ -537,10 +864,10 @@ function FrequencyScreen({ onRestart }: { onRestart: () => void }) {
             </button>
             <button
               type="button"
-              onClick={onRestart}
+              onClick={onBack}
               className="rounded-xl border-2 border-[#116149] bg-white px-5 py-3 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white"
             >
-              Registrar nova visita
+              Voltar às metas
             </button>
           </div>
         </div>
@@ -585,9 +912,9 @@ function FrequencyScreen({ onRestart }: { onRestart: () => void }) {
             <div className="divide-y divide-[#e7eeeb]">
               {studentRanking.map((student, index) => (
                 <div
-                  key={student.registration}
-                  className={`grid grid-cols-[42px_1fr_auto] items-center gap-3 px-5 py-4 sm:grid-cols-[50px_1fr_100px_100px] sm:px-7 ${
-                    student.name === "Mariana Oliveira Santos" ? "bg-[#f1f8f4]" : ""
+                  key={student.matricula}
+                  className={`grid grid-cols-[42px_1fr_auto] items-center gap-3 px-5 py-4 sm:grid-cols-[50px_1fr_100px] sm:px-7 ${
+                    student.matricula === currentStudent?.matricula ? "bg-[#f1f8f4]" : ""
                   }`}
                 >
                   <span
@@ -600,20 +927,16 @@ function FrequencyScreen({ onRestart }: { onRestart: () => void }) {
                     {index + 1}º
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-extrabold text-[#123e32]">{student.name}</p>
+                    <p className="truncate text-sm font-extrabold text-[#123e32]">{student.nome}</p>
                     <p className="mt-0.5 text-[11px] text-[#81938c]">
-                      Matrícula {student.registration}
-                      {student.name === "Mariana Oliveira Santos" && (
+                      Matrícula {student.matricula}
+                      {student.matricula === currentStudent?.matricula && (
                         <span className="ml-2 font-bold text-[#d94c47]">Você</span>
                       )}
                     </p>
                   </div>
-                  <div className="hidden sm:block">
-                    <strong className="block text-sm text-[#123e32]">{student.visits}</strong>
-                    <span className="text-[10px] text-[#81938c]">visitas</span>
-                  </div>
                   <div className="text-right">
-                    <strong className="block text-sm text-[#116149]">{student.points}</strong>
+                    <strong className="block text-sm text-[#116149]">{student.pontuacao}</strong>
                     <span className="text-[10px] text-[#81938c]">pontos</span>
                   </div>
                 </div>
@@ -674,15 +997,229 @@ function FrequencyScreen({ onRestart }: { onRestart: () => void }) {
   );
 }
 
+function GoalsScreen({
+  goals,
+  coordinator,
+  onLogout,
+}: {
+  goals: Goal[];
+  coordinator: Coordinator;
+  onLogout: () => void;
+}) {
+  const safeGoals = Array.isArray(goals) ? goals : [];
+
+  return (
+    <main className="flex-1 px-5 py-10 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#d94c47]">
+              Área restrita
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
+              Metas de leitura
+            </h1>
+            <p className="mt-3 text-[#697f77]">
+              Olá, {coordinator.nome}. Acompanhe as metas cadastradas para os estudantes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-xl border-2 border-[#116149] bg-white px-5 py-3 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white"
+          >
+            Sair da área restrita
+          </button>
+        </div>
+
+        <div className="mt-10 grid gap-5 md:grid-cols-3">
+          {safeGoals.map((goal, index) => (
+            <article
+              key={goal.id}
+              className="relative overflow-hidden rounded-2xl border border-[#d6e4de] bg-white p-7 shadow-[0_12px_40px_rgba(18,62,50,0.06)]"
+            >
+              <span
+                className={`absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full ${
+                  index === 1 ? "bg-[#d94c47]/10" : "bg-[#116149]/10"
+                }`}
+              />
+              <div className="relative">
+                <div
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                    index === 1 ? "bg-[#fff1ef] text-[#d94c47]" : "bg-[#eef7f2] text-[#116149]"
+                  }`}
+                >
+                  <Icon name={index === 0 ? "book" : index === 1 ? "star" : "chart"} />
+                </div>
+                <p className="mt-6 text-4xl font-black tracking-tight text-[#123e32]">
+                  {goal.pontuacao}
+                  <span className="ml-1 text-sm font-bold text-[#788c84]">pontos</span>
+                </p>
+                <h2 className="mt-5 text-xl font-black text-[#123e32]">{goal.titulo}</h2>
+                <p className="mt-2 text-sm leading-6 text-[#71867e]">{goal.texto}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {safeGoals.length === 0 && (
+          <div className="mt-10 rounded-2xl border border-dashed border-[#b8d0c6] bg-white p-10 text-center">
+            <p className="font-bold text-[#405f55]">Nenhuma meta cadastrada na API.</p>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("checkin");
+  const [students, setStudents] = useState<Student[]>([]);
+  const [apiBooks, setApiBooks] = useState<ApiBook[]>([]);
+  const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [currentCoordinator, setCurrentCoordinator] = useState<Coordinator | null>(null);
+  const [scoreUnlocked, setScoreUnlocked] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadLibraryData() {
+      try {
+        setLoading(true);
+        setApiError("");
+        const [studentsResponse, booksResponse, coordinatorsResponse, goalsResponse] =
+          await Promise.all([
+          fetch(`${API_URL}/estudantes`, { signal: controller.signal }),
+          fetch(`${API_URL}/livros`, { signal: controller.signal }),
+            fetch(`${API_URL}/coordenadores`, { signal: controller.signal }),
+            fetch(`${API_URL}/metas`, { signal: controller.signal }),
+          ]);
+
+        if (
+          !studentsResponse.ok ||
+          !booksResponse.ok ||
+          !coordinatorsResponse.ok ||
+          !goalsResponse.ok
+        ) {
+          throw new Error("Não foi possível consultar os dados da biblioteca.");
+        }
+
+        const [studentsData, booksData, coordinatorsData, goalsData]: [
+          unknown,
+          unknown,
+          unknown,
+          unknown,
+        ] = await Promise.all([
+          studentsResponse.json(),
+          booksResponse.json(),
+          coordinatorsResponse.json(),
+          goalsResponse.json(),
+        ]);
+
+        if (
+          !Array.isArray(studentsData) ||
+          !Array.isArray(booksData) ||
+          !Array.isArray(coordinatorsData) ||
+          !Array.isArray(goalsData)
+        ) {
+          throw new Error("A API retornou dados em um formato inesperado.");
+        }
+
+        setStudents(studentsData);
+        setApiBooks(booksData);
+        setCoordinators(coordinatorsData);
+        setGoals(goalsData);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setApiError("Não foi possível conectar à API. Tente novamente em alguns instantes.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }
+
+    loadLibraryData();
+    return () => controller.abort();
+  }, []);
+
+  const studentLogin = (student: Student) => {
+    setCurrentCoordinator(null);
+    setCurrentStudent(student);
+    setScoreUnlocked(false);
+  };
+
+  const clearStudent = () => {
+    setCurrentStudent(null);
+    setScoreUnlocked(false);
+  };
+
+  const completeRating = () => {
+    setScoreUnlocked(true);
+    setScreen("score");
+  };
+
+  const coordinatorLogin = (coordinator: Coordinator) => {
+    setCurrentStudent(null);
+    setScoreUnlocked(false);
+    setCurrentCoordinator(coordinator);
+    setScreen("goals");
+  };
+
+  const coordinatorLogout = () => {
+    setCurrentCoordinator(null);
+    setScreen("checkin");
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-[#fbfcfb] text-[#123e32]">
-      <Header screen={screen} onNavigate={setScreen} />
-      {screen === "checkin" && <CheckInScreen onContinue={() => setScreen("books")} />}
-      {screen === "books" && <BooksScreen onContinue={() => setScreen("frequency")} />}
-      {screen === "frequency" && <FrequencyScreen onRestart={() => setScreen("checkin")} />}
+      <Header
+        screen={screen}
+        coordinatorLoggedIn={Boolean(currentCoordinator)}
+        studentLoggedIn={Boolean(currentStudent)}
+        scoreUnlocked={scoreUnlocked}
+        onNavigate={setScreen}
+      />
+      {screen === "checkin" && (
+        <CheckInScreen
+          students={students}
+          apiBooks={apiBooks}
+          coordinators={coordinators}
+          loading={loading}
+          apiError={apiError}
+          currentStudent={currentStudent}
+          onIdentify={studentLogin}
+          onCoordinatorLogin={coordinatorLogin}
+          onBack={clearStudent}
+          onContinue={() => setScreen("books")}
+        />
+      )}
+      {screen === "books" && currentStudent && (
+        <BooksScreen apiBooks={apiBooks} onContinue={completeRating} />
+      )}
+      {screen === "score" && currentStudent && scoreUnlocked && (
+        <StudentScoreScreen
+          student={currentStudent}
+          goals={goals}
+          onBack={() => setScreen("books")}
+        />
+      )}
+      {screen === "frequency" && currentCoordinator && (
+        <FrequencyScreen
+          students={students}
+          currentStudent={currentStudent}
+          onBack={() => setScreen("goals")}
+        />
+      )}
+      {screen === "goals" && currentCoordinator && (
+        <GoalsScreen
+          goals={goals}
+          coordinator={currentCoordinator}
+          onLogout={coordinatorLogout}
+        />
+      )}
       <footer className="border-t border-[#e0e9e5] px-5 py-4 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a9b95]">
         Sistema de controle de visitas · Biblioteca escolar
       </footer>
