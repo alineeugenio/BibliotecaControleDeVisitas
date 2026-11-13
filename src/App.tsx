@@ -41,7 +41,7 @@ type Coordinator = {
 }
 
 type Goal = {
-  id: number
+  id: number | string
   pontuacao: number
   titulo: string
   texto: string
@@ -49,6 +49,7 @@ type Goal = {
 
 const API_URL = "https://desafio-biblioteca-api.onrender.com"
 const REVIEW_POINTS = 10
+const makeApiRecordId = () => crypto.randomUUID()
 
 const studentKey = (student: Student) =>
   String(student.id ?? student.legacyId ?? student.matricula)
@@ -172,7 +173,7 @@ function Header({
   scoreUnlocked: boolean
   onNavigate: (screen: Screen) => void
 }) {
-  const steps: { id: Screen label: string }[] = coordinatorLoggedIn
+  const steps: { id: Screen; label: string }[] = coordinatorLoggedIn
     ? [
         { id: "students", label: "Alunos" },
         { id: "goals", label: "Metas" },
@@ -1207,7 +1208,7 @@ function MyLibraryScreen({
 
   useEffect(() => {
     const normalizedQuery = query.trim()
-    if (normalizedQuery.length < 2) {
+    if (normalizedQuery.length < 3) {
       setResults([])
       setSearching(false)
       setSearchError("")
@@ -1279,6 +1280,7 @@ function MyLibraryScreen({
       : ""
 
     const savedBook: ApiBook = {
+      id: makeApiRecordId(),
       titulo: selectedBook.title,
       autor: selectedBook.author_name?.join(", ") || "Autoria não informada",
       nota: `${rating} - ${comment.trim() || "Sem comentário."}`,
@@ -1363,7 +1365,7 @@ function MyLibraryScreen({
                 />
               </div>
               <p className="mt-2 text-xs text-[#81938c]">
-                Digite pelo menos 2 caracteres. A busca retorna até 20
+                Digite pelo menos 3 caracteres. A busca retorna até 20
                 resultados.
               </p>
             </div>
@@ -1385,12 +1387,12 @@ function MyLibraryScreen({
           <section aria-live="polite">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-black text-[#123e32]">
-                {query.trim().length >= 2
+                {query.trim().length >= 3
                   ? "Resultados da pesquisa"
                   : "Suas leituras"}
               </h2>
               <span className="text-xs font-bold text-[#788c84]">
-                {query.trim().length >= 2
+                {query.trim().length >= 3
                   ? `${results.length} resultados`
                   : `${studentBooks.length} livros`}
               </span>
@@ -1409,7 +1411,7 @@ function MyLibraryScreen({
               <div className="rounded-2xl border border-[#f0cfcb] bg-[#fff7f5] p-8 text-center text-sm font-semibold text-[#a33f3a]">
                 {searchError}
               </div>
-            ) : query.trim().length >= 2 ? (
+            ) : query.trim().length >= 3 ? (
               results.length > 0 ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   {results.map((book) => (
@@ -2575,6 +2577,7 @@ export default function App() {
     if (alreadyGranted) return
 
     const bonus: ApiBook = {
+      id: makeApiRecordId(),
       titulo: "__BONUS_BOAS_VINDAS__",
       autor: "Sistema",
       nota: "0",
@@ -2621,10 +2624,11 @@ export default function App() {
   }
 
   const addStudent = async (student: Student) => {
+    const newStudent = { ...student, id: student.id ?? makeApiRecordId() }
     const response = await fetch(`${API_URL}/estudantes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(student),
+      body: JSON.stringify(newStudent),
     })
     if (!response.ok) throw new Error("Falha ao cadastrar aluno.")
     const created = (await response.json()) as Student
@@ -2646,6 +2650,7 @@ export default function App() {
     }
 
     const marker: ApiBook = {
+      id: makeApiRecordId(),
       titulo: "__ALUNO_REMOVIDO__",
       autor: "Sistema",
       nota: "0",
@@ -2669,6 +2674,7 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        id: makeApiRecordId(),
         pontuacao: points,
         titulo: title,
         texto: `Título concedido ao alcançar ${points} pontos.`,
