@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
 
-type Screen = "checkin" | "books" | "library" | "score" | "frequency" | "goals"
+type Screen = "checkin" | "studentHome" | "books" | "library" | "history" | "score" | "frequency" | "goals" | "students"
 
 type Student = {
+  id?: number | string
+  legacyId?: string
   matricula: string
   nome: string
   pontuacao: string
@@ -18,7 +20,10 @@ type ApiBook = {
   avaliacao?: number
   data_registro?: string
   capa_id?: number | null
+  capa_url?: string
   open_library_key?: string
+  tipo?: "avaliacao" | "bonus_boas_vindas" | "aluno_removido"
+  pontos?: number
 }
 
 type OpenLibraryBook = {
@@ -43,6 +48,44 @@ type Goal = {
 }
 
 const API_URL = "https://desafio-biblioteca-api.onrender.com"
+const REVIEW_POINTS = 10
+
+const studentKey = (student: Student) =>
+  String(student.id ?? student.legacyId ?? student.matricula)
+
+const isStudentRecord = (
+  book: ApiBook,
+  student: Student,
+  studentIndex?: number,
+) =>
+  book.id_aluno === studentKey(student) ||
+  book.id_aluno === student.matricula ||
+  book.id_aluno === student.legacyId ||
+  (student.legacyId === undefined &&
+    studentIndex !== undefined &&
+    student.id === undefined &&
+    book.id_aluno === String(studentIndex + 1))
+
+const isReview = (book: ApiBook) =>
+  book.tipo === "avaliacao" ||
+  (!book.tipo &&
+    Boolean(book.titulo) &&
+    book.titulo !== "__BONUS_BOAS_VINDAS__")
+
+const studentPoints = (
+  student: Student,
+  books: ApiBook[],
+  studentIndex?: number,
+) =>
+  Number.parseInt(student.pontuacao, 10) +
+  books
+    .filter((book) => isStudentRecord(book, student, studentIndex))
+    .reduce((total, book) => total + (book.pontos ?? 0), 0)
+
+const studentTitle = (points: number, goals: Goal[]) =>
+  [...goals]
+    .filter((goal) => points >= goal.pontuacao)
+    .sort((a, b) => b.pontuacao - a.pontuacao)[0]?.titulo ?? "Iniciante"
 
 const attendance = [
   { month: "Fev", value: 52 },
@@ -131,14 +174,15 @@ function Header({
 }) {
   const steps: { id: Screen label: string }[] = coordinatorLoggedIn
     ? [
+        { id: "students", label: "Alunos" },
         { id: "goals", label: "Metas" },
         { id: "frequency", label: "Frequência" },
       ]
     : studentLoggedIn
       ? [
-          { id: "checkin", label: "Entrada" },
-          { id: "books", label: "Avaliações" },
-          { id: "library", label: "Minha Biblioteca" },
+          { id: "studentHome", label: "Início" },
+          { id: "library", label: "Avaliar livros" },
+          { id: "history", label: "Livros lidos" },
           ...(scoreUnlocked
             ? [{ id: "score" as Screen, label: "Pontuação" }]
             : []),
@@ -150,12 +194,20 @@ function Header({
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
         <button
           className="flex items-center gap-3 text-left"
-          onClick={() => onNavigate(coordinatorLoggedIn ? "goals" : "checkin")}
+          onClick={() =>
+            onNavigate(
+              coordinatorLoggedIn
+                ? "students"
+                : studentLoggedIn
+                  ? "studentHome"
+                  : "checkin",
+            )
+          }
           type="button"
           aria-label="Ir para o início do Portal do Leitor do IFB"
         >
           <img
-            src="/ifb-logo.svg"
+            src="/ifb-logo.png"
             alt="Instituto Federal de Brasília"
             className="h-12 w-auto sm:h-14"
           />
@@ -238,6 +290,7 @@ function CheckInScreen({
   loading,
   apiError,
   currentStudent,
+  welcomeGranted,
   onIdentify,
   onCoordinatorLogin,
   onBack,
@@ -250,6 +303,7 @@ function CheckInScreen({
   loading: boolean
   apiError: string
   currentStudent: Student | null
+  welcomeGranted: boolean
   onIdentify: (student: Student) => void
   onCoordinatorLogin: (coordinator: Coordinator) => void
   onBack: () => void
@@ -274,7 +328,7 @@ function CheckInScreen({
   const safeBooks = Array.isArray(apiBooks) ? apiBooks : []
   const safeCoordinators = Array.isArray(coordinators) ? coordinators : []
   const bookCatalog = Array.from(
-    new Set(safeBooks.map((book) => book.titulo)),
+    new Set(safeBooks.filter(isReview).map((book) => book.titulo)),
   ).sort((a, b) => a.localeCompare(b, "pt-BR"))
   const confetti = Array.from({ length: 70 }, (_, index) => ({
     left: `${(index * 37) % 100}%`,
@@ -432,13 +486,13 @@ function CheckInScreen({
                       setLoginMode("coordinator")
                       setLoginError("")
                     }}
-                    className={`rounded-lg px-3 py-2.5 text-xs font-extrabold transition ${
+                    className={`rounded-lg px-3 py-2.5 text-[10px] font-bold opacity-55 transition hover:opacity-100 ${
                       loginMode === "coordinator"
-                        ? "bg-white text-[#116149] shadow-sm"
+                        ? "bg-white text-[#116149] opacity-100 shadow-sm"
                         : "text-[#71847e]"
                     }`}
                   >
-                    Coordenador
+                    Acesso administrativo
                   </button>
                 </div>
 
@@ -592,10 +646,12 @@ function CheckInScreen({
 
                 <div className="mb-6 mt-2 rounded-2xl bg-[#fff4f2] px-5 py-5">
                   <p className="text-sm font-semibold text-[#8d4843]">
-                    Visita registrada com sucesso
+                    Acesso realizado com sucesso
                   </p>
-                  <p className="mt-1 text-2xl font-black text-[#d94c47]">
-                    Você ganhou 10 pontos
+                  <p className="mt-1 text-xl font-black text-[#d94c47]">
+                    {welcomeGranted
+                      ? "Você ganhou 10 pontos de boas-vindas"
+                      : "Bem-vindo de volta à biblioteca"}
                   </p>
                 </div>
 
@@ -701,11 +757,10 @@ function CheckInScreen({
                   </button>
                   <button
                     onClick={onContinue}
-                    disabled={!selectedAction || !selectedBook}
                     className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15 disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
                     type="button"
                   >
-                    Continuar
+                    Acessar painel
                     <Icon name="arrow" className="h-4 w-4" />
                   </button>
                 </div>
@@ -858,6 +913,267 @@ function BooksScreen({
   )
 }
 
+function StudentHomeScreen({
+  student,
+  students,
+  books,
+  goals,
+  welcomeGranted,
+  onEvaluate,
+  onHistory,
+  onLogout,
+}: {
+  student: Student
+  students: Student[]
+  books: ApiBook[]
+  goals: Goal[]
+  welcomeGranted: boolean
+  onEvaluate: () => void
+  onHistory: () => void
+  onLogout: () => void
+}) {
+  const ranking = students
+    .map((item, index) => ({
+      student: item,
+      points: studentPoints(item, books, index),
+    }))
+    .sort((a, b) => b.points - a.points)
+  const position =
+    ranking.findIndex((item) => item.student.matricula === student.matricula) +
+    1
+  const points = studentPoints(
+    student,
+    books,
+    students.findIndex((item) => item.matricula === student.matricula),
+  )
+  const title = studentTitle(points, goals)
+
+  return (
+    <main className="flex-1 px-5 py-10 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#d94c47]">
+              Painel do aluno
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
+              Olá, {student.nome.split(" ")[0]}
+            </h1>
+            <p className="mt-3 text-[#697f77]">
+              Acompanhe sua evolução e continue construindo sua história como
+              leitor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-xl border border-[#b8d0c6] bg-white px-4 py-2.5 text-xs font-bold text-[#60766e] hover:border-[#116149] hover:text-[#116149]"
+          >
+            Sair
+          </button>
+        </div>
+
+        {welcomeGranted && (
+          <div className="mt-7 flex items-center gap-3 rounded-2xl border border-[#cfe0d9] bg-[#eef7f2] px-5 py-4 text-sm font-bold text-[#116149]">
+            <Icon name="star" className="h-5 w-5 fill-current" />
+            Você recebeu 10 pontos de boas-vindas. Essa bonificação é única.
+          </div>
+        )}
+
+        <div className="mt-7 grid gap-4 md:grid-cols-3">
+          {[
+            {
+              label: "Pontuação total",
+              value: points,
+              detail: "pontos acumulados",
+              icon: "star" as const,
+            },
+            {
+              label: "Posição no ranking",
+              value: `${position}º`,
+              detail: `entre ${students.length} alunos`,
+              icon: "chart" as const,
+            },
+            {
+              label: "Título atual",
+              value: title,
+              detail: "maior meta alcançada",
+              icon: "book" as const,
+            },
+          ].map((item, index) => (
+            <article
+              key={item.label}
+              className={`rounded-2xl border p-6 ${
+                index === 0
+                  ? "border-[#116149] bg-[#116149] text-white"
+                  : "border-[#d6e4de] bg-white text-[#123e32]"
+              }`}
+            >
+              <Icon
+                name={item.icon}
+                className={`h-6 w-6 ${
+                  index === 0 ? "text-white" : "text-[#d94c47]"
+                }`}
+              />
+              <p
+                className={`mt-5 text-xs font-bold uppercase tracking-[0.14em] ${
+                  index === 0 ? "text-white/65" : "text-[#71867e]"
+                }`}
+              >
+                {item.label}
+              </p>
+              <strong className="mt-2 block text-3xl font-black">
+                {item.value}
+              </strong>
+              <span
+                className={`mt-1 block text-xs ${
+                  index === 0 ? "text-white/65" : "text-[#8a9b95]"
+                }`}
+              >
+                {item.detail}
+              </span>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-8 grid gap-5 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={onEvaluate}
+            className="group flex items-center gap-5 rounded-2xl border-2 border-[#116149] bg-white p-6 text-left transition hover:bg-[#116149] hover:text-white"
+          >
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eef7f2] text-[#116149]">
+              <Icon name="search" className="h-6 w-6" />
+            </span>
+            <span>
+              <strong className="block text-xl font-black">
+                Avaliar livros
+              </strong>
+              <span className="mt-1 block text-sm opacity-70">
+                Pesquise, dê uma nota e registre seu comentário.
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onHistory}
+            className="group flex items-center gap-5 rounded-2xl border-2 border-[#d94c47] bg-white p-6 text-left text-[#123e32] transition hover:bg-[#d94c47] hover:text-white"
+          >
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff1ef] text-[#d94c47]">
+              <Icon name="book" className="h-6 w-6" />
+            </span>
+            <span>
+              <strong className="block text-xl font-black">Livros lidos</strong>
+              <span className="mt-1 block text-sm opacity-70">
+                Consulte seu histórico completo de avaliações.
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </main>
+  )
+}
+
+function ReadingHistoryScreen({
+  student,
+  students,
+  books,
+}: {
+  student: Student
+  students: Student[]
+  books: ApiBook[]
+}) {
+  const [selected, setSelected] = useState<ApiBook | null>(null)
+  const index = students.findIndex(
+    (item) => item.matricula === student.matricula,
+  )
+  const history = books
+    .filter((book) => isStudentRecord(book, student, index) && isReview(book))
+    .sort(
+      (a, b) =>
+        new Date(b.data_registro ?? 0).getTime() -
+        new Date(a.data_registro ?? 0).getTime(),
+    )
+
+  return (
+    <main className="flex-1 px-5 py-10 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#d94c47]">
+          Histórico individual
+        </p>
+        <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
+          Livros lidos
+        </h1>
+        <p className="mt-3 text-[#697f77]">
+          Apenas as avaliações vinculadas ao seu cadastro são exibidas aqui.
+        </p>
+
+        {history.length > 0 ? (
+          <div className="mt-9 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {history.map((book, bookIndex) => (
+              <button
+                key={book.id ?? `${book.titulo}-${bookIndex}`}
+                type="button"
+                onClick={() => setSelected(book)}
+                className="rounded-2xl text-left transition hover:-translate-y-0.5 hover:shadow-[0_14px_35px_rgba(18,62,50,0.09)]"
+              >
+                <SavedBookCard book={book} />
+                <span className="mt-2 block text-center text-xs font-bold text-[#116149]">
+                  Ver detalhes
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-9">
+            <EmptyLibraryState text="Você ainda não avaliou nenhum livro." />
+          </div>
+        )}
+      </div>
+
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d2d25]/55 p-5">
+          <section
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-lg rounded-[2rem] bg-white p-7 shadow-2xl"
+          >
+            <div className="flex justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#d94c47]">
+                  Detalhes da avaliação
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-[#123e32]">
+                  {selected.titulo}
+                </h2>
+                <p className="mt-1 text-sm text-[#71867e]">{selected.autor}</p>
+              </div>
+              <button
+                type="button"
+                aria-label="Fechar detalhes"
+                onClick={() => setSelected(null)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#c8d9d2] text-[#116149]"
+              >
+                <Icon name="close" className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-6 text-4xl font-black text-[#d94c47]">
+              {selected.avaliacao ?? Number.parseInt(selected.nota, 10)}
+              <span className="text-sm text-[#71867e]"> / 10</span>
+            </p>
+            <p className="mt-5 rounded-xl bg-[#f6f9f7] p-4 text-sm leading-7 text-[#405f55]">
+              {selected.comentario ||
+                selected.nota.split(" - ").slice(1).join(" - ") ||
+                "Sem comentário."}
+            </p>
+          </section>
+        </div>
+      )}
+    </main>
+  )
+}
+
 function MyLibraryScreen({
   student,
   initialBooks,
@@ -878,7 +1194,7 @@ function MyLibraryScreen({
   const [saveMessage, setSaveMessage] = useState("")
 
   const studentBooks = initialBooks
-    .filter((book) => book.id_aluno === student.matricula)
+    .filter((book) => isStudentRecord(book, student) && isReview(book))
     .sort((a, b) => {
       const firstDate = a.data_registro
         ? new Date(a.data_registro).getTime()
@@ -956,7 +1272,11 @@ function MyLibraryScreen({
 
   const saveBook = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!selectedBook || rating === null) return
+    if (!selectedBook || rating === null || !comment.trim()) return
+
+    const coverUrl = selectedBook.cover_i
+      ? `https://covers.openlibrary.org/b/id/${selectedBook.cover_i}-M.jpg`
+      : ""
 
     const savedBook: ApiBook = {
       titulo: selectedBook.title,
@@ -966,8 +1286,11 @@ function MyLibraryScreen({
       comentario: comment.trim(),
       data_registro: new Date().toISOString(),
       capa_id: selectedBook.cover_i ?? null,
+      capa_url: coverUrl,
       open_library_key: selectedBook.key,
-      id_aluno: student.matricula,
+      id_aluno: studentKey(student),
+      tipo: "avaliacao",
+      pontos: REVIEW_POINTS,
     }
 
     try {
@@ -978,15 +1301,24 @@ function MyLibraryScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(savedBook),
       })
-      if (!response.ok) throw new Error("Não foi possível salvar a leitura.")
+      if (!response.ok) {
+        const apiMessage = await response.text()
+        throw new Error(
+          apiMessage || `A API recusou a gravação (${response.status}).`,
+        )
+      }
       const createdBook = (await response.json()) as ApiBook
       onBookSaved(createdBook)
       setSelectedBook(null)
       setQuery("")
       setResults([])
       setSaveMessage("Livro adicionado à sua biblioteca.")
-    } catch {
-      setSaveMessage("Não foi possível salvar o livro. Tente novamente.")
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message.includes("Origin is disallowed")
+          ? "A API bloqueou a origem do aplicativo. O CORS do backend precisa permitir este endereço."
+          : "Não foi possível salvar o livro no banco. Tente novamente."
+      setSaveMessage(reason)
     } finally {
       setSaving(false)
     }
@@ -1184,13 +1516,13 @@ function MyLibraryScreen({
                 htmlFor="reading-comment"
                 className="text-sm font-extrabold text-[#405f55]"
               >
-                Comentário{" "}
-                <span className="font-normal text-[#81938c]">(opcional)</span>
+                Comentário
               </label>
               <textarea
                 id="reading-comment"
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
+                required
                 maxLength={500}
                 rows={4}
                 placeholder="Conte o que achou desta leitura..."
@@ -1203,7 +1535,7 @@ function MyLibraryScreen({
 
             <button
               type="submit"
-              disabled={rating === null || saving}
+              disabled={rating === null || !comment.trim() || saving}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
             >
               <Icon name="plus" className="h-4 w-4" />
@@ -1218,16 +1550,22 @@ function MyLibraryScreen({
 
 function BookCover({
   coverId,
+  coverUrl,
   title,
   className,
 }: {
   coverId?: number | null
+  coverUrl?: string
   title: string
   className: string
 }) {
-  return coverId ? (
+  const persistentUrl =
+    coverUrl ||
+    (coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : "")
+
+  return persistentUrl ? (
     <img
-      src={`https://covers.openlibrary.org/b/id/${coverId}-M.jpg`}
+      src={persistentUrl}
       alt={`Capa de ${title}`}
       loading="lazy"
       className={`${className} rounded-md object-cover shadow-md`}
@@ -1291,6 +1629,7 @@ function SavedBookCard({ book }: { book: ApiBook }) {
     <article className="flex min-h-48 gap-4 rounded-2xl border border-[#d6e4de] bg-white p-4">
       <BookCover
         coverId={book.capa_id}
+        coverUrl={book.capa_url}
         title={book.titulo}
         className="h-36 w-24 shrink-0"
       />
@@ -1442,18 +1781,25 @@ function StudentScoreScreen({
 
 function FrequencyScreen({
   students = [],
+  books = [],
   currentStudent,
   onBack,
 }: {
   students: Student[]
+  books: ApiBook[]
   currentStudent: Student | null
   onBack: () => void
 }) {
   const [showRanking, setShowRanking] = useState(false)
-  const studentRanking = [...(Array.isArray(students) ? students : [])].sort(
-    (a, b) =>
-      Number.parseInt(b.pontuacao, 10) - Number.parseInt(a.pontuacao, 10),
-  )
+  const studentRanking = [...(Array.isArray(students) ? students : [])]
+    .map((student, index) => ({
+      ...student,
+      pontuacao: String(studentPoints(student, books, index)),
+    }))
+    .sort(
+      (a, b) =>
+        Number.parseInt(b.pontuacao, 10) - Number.parseInt(a.pontuacao, 10),
+    )
 
   return (
     <main className="flex-1 px-5 py-10 sm:px-8">
@@ -1648,16 +1994,323 @@ function FrequencyScreen({
   )
 }
 
+function AdminStudentsScreen({
+  students,
+  books,
+  goals,
+  onAdd,
+  onRemove,
+  onLogout,
+}: {
+  students: Student[]
+  books: ApiBook[]
+  goals: Goal[]
+  onAdd: (student: Student) => Promise<void>
+  onRemove: (student: Student) => Promise<void>
+  onLogout: () => void
+}) {
+  const [name, setName] = useState("")
+  const [registration, setRegistration] = useState("")
+  const [selected, setSelected] = useState<Student | null>(null)
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  const ranking = students
+    .map((student, index) => ({
+      student,
+      points: studentPoints(student, books, index),
+    }))
+    .sort((a, b) => b.points - a.points)
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (students.some((student) => student.matricula === registration.trim())) {
+      setMessage("Já existe um aluno com essa matrícula.")
+      return
+    }
+    try {
+      setBusy(true)
+      await onAdd({
+        id: crypto.randomUUID(),
+        matricula: registration.trim(),
+        nome: name.trim(),
+        pontuacao: "0",
+      })
+      setName("")
+      setRegistration("")
+      setMessage("Aluno cadastrado com sucesso.")
+    } catch {
+      setMessage("Não foi possível cadastrar o aluno.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="flex-1 px-5 py-10 sm:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#d94c47]">
+              Área administrativa
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.04em] text-[#123e32] sm:text-5xl">
+              Gerenciamento de alunos
+            </h1>
+            <p className="mt-3 text-[#697f77]">
+              Cadastre estudantes e acompanhe ranking, títulos e histórico.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-xl border border-[#b8d0c6] bg-white px-4 py-2.5 text-xs font-bold text-[#60766e] hover:border-[#116149] hover:text-[#116149]"
+          >
+            Sair da área administrativa
+          </button>
+        </div>
+
+        <div className="mt-9 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
+          <form
+            onSubmit={submit}
+            className="h-fit rounded-2xl border border-[#d6e4de] bg-white p-6"
+          >
+            <h2 className="text-xl font-black text-[#123e32]">
+              Cadastrar aluno
+            </h2>
+            <label className="mt-5 block text-xs font-bold text-[#405f55]">
+              Nome completo
+              <input
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="mt-2 w-full rounded-xl border-2 border-[#b8d0c6] px-4 py-3 text-sm outline-none focus:border-[#116149]"
+              />
+            </label>
+            <label className="mt-4 block text-xs font-bold text-[#405f55]">
+              Matrícula
+              <input
+                required
+                value={registration}
+                onChange={(event) => setRegistration(event.target.value)}
+                className="mt-2 w-full rounded-xl border-2 border-[#b8d0c6] px-4 py-3 text-sm outline-none focus:border-[#116149]"
+              />
+            </label>
+            <button
+              disabled={busy}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#116149] px-4 py-3 text-sm font-extrabold text-[#116149] hover:bg-[#116149] hover:text-white disabled:opacity-50"
+            >
+              <Icon name="plus" className="h-4 w-4" />
+              {busy ? "Salvando..." : "Cadastrar aluno"}
+            </button>
+            {message && (
+              <p className="mt-3 text-center text-xs font-bold text-[#60766e]">
+                {message}
+              </p>
+            )}
+          </form>
+
+          <section className="overflow-hidden rounded-2xl border border-[#d6e4de] bg-white">
+            <div className="border-b border-[#e1eae6] px-6 py-5">
+              <h2 className="text-xl font-black text-[#123e32]">
+                Alunos cadastrados
+              </h2>
+              <p className="mt-1 text-xs text-[#788c84]">
+                {students.length} registros ativos
+              </p>
+            </div>
+            <div className="divide-y divide-[#e7eeeb]">
+              {ranking.map(({ student, points }, index) => (
+                <div
+                  key={studentKey(student)}
+                  className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-5 py-4"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#eef7f2] text-xs font-black text-[#116149]">
+                    {index + 1}º
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(student)}
+                    className="min-w-0 text-left"
+                  >
+                    <strong className="block truncate text-sm text-[#123e32]">
+                      {student.nome}
+                    </strong>
+                    <span className="text-[11px] text-[#81938c]">
+                      {points} pontos · {studentTitle(points, goals)}
+                    </span>
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelected(student)}
+                      className="rounded-lg border border-[#b8d0c6] px-3 py-2 text-[10px] font-bold text-[#116149]"
+                    >
+                      Detalhes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (
+                          !window.confirm(`Remover ${student.nome} do sistema?`)
+                        )
+                          return
+                        await onRemove(student)
+                        if (selected?.matricula === student.matricula)
+                          setSelected(null)
+                      }}
+                      className="rounded-lg border border-[#efc7c3] px-3 py-2 text-[10px] font-bold text-[#b3453f]"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {selected && (
+        <AdminStudentDetails
+          student={selected}
+          students={students}
+          books={books}
+          goals={goals}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </main>
+  )
+}
+
+function AdminStudentDetails({
+  student,
+  students,
+  books,
+  goals,
+  onClose,
+}: {
+  student: Student
+  students: Student[]
+  books: ApiBook[]
+  goals: Goal[]
+  onClose: () => void
+}) {
+  const studentIndex = students.findIndex(
+    (item) => item.matricula === student.matricula,
+  )
+  const points = studentPoints(student, books, studentIndex)
+  const ranking = students
+    .map((item, index) => ({
+      matricula: item.matricula,
+      points: studentPoints(item, books, index),
+    }))
+    .sort((a, b) => b.points - a.points)
+  const position =
+    ranking.findIndex((item) => item.matricula === student.matricula) + 1
+  const history = books.filter(
+    (book) => isStudentRecord(book, student, studentIndex) && isReview(book),
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0d2d25]/55 sm:items-center sm:p-5">
+      <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] bg-white p-7 sm:rounded-[2rem]">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#d94c47]">
+              Perfil do aluno
+            </p>
+            <h2 className="mt-2 text-3xl font-black text-[#123e32]">
+              {student.nome}
+            </h2>
+            <p className="mt-1 text-sm text-[#71867e]">
+              Matrícula {student.matricula}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Fechar"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-[#c8d9d2] text-[#116149]"
+          >
+            <Icon name="close" className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-6 grid grid-cols-3 gap-3">
+          {[
+            ["Pontuação", points],
+            ["Ranking", `${position}º`],
+            ["Título", studentTitle(points, goals)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl bg-[#f3f7f5] p-4">
+              <span className="text-[10px] font-bold uppercase text-[#71867e]">
+                {label}
+              </span>
+              <strong className="mt-1 block text-lg text-[#123e32]">
+                {value}
+              </strong>
+            </div>
+          ))}
+        </div>
+        <h3 className="mt-7 text-xl font-black text-[#123e32]">
+          Histórico de livros
+        </h3>
+        <div className="mt-4 space-y-3">
+          {history.length > 0 ? (
+            history.map((book, index) => (
+              <div
+                key={book.id ?? `${book.titulo}-${index}`}
+                className="rounded-xl border border-[#d6e4de] p-4"
+              >
+                <div className="flex justify-between gap-4">
+                  <div>
+                    <strong className="text-sm text-[#123e32]">
+                      {book.titulo}
+                    </strong>
+                    <p className="mt-1 text-xs text-[#71867e]">{book.autor}</p>
+                  </div>
+                  <span className="font-black text-[#d94c47]">
+                    {book.avaliacao ?? Number.parseInt(book.nota, 10)}/10
+                  </span>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-[#60766e]">
+                  {book.comentario ||
+                    book.nota.split(" - ").slice(1).join(" - ") ||
+                    "Sem comentário."}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-[#71867e]">
+              Nenhuma avaliação registrada.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function GoalsScreen({
   goals,
   coordinator,
   onLogout,
+  onCreate,
+  onUpdate,
+  onDelete,
 }: {
   goals: Goal[]
   coordinator: Coordinator
   onLogout: () => void
+  onCreate: (points: number, title: string) => Promise<void>
+  onUpdate: (goal: Goal, points: number, title: string) => Promise<void>
+  onDelete: (goal: Goal) => Promise<void>
 }) {
   const safeGoals = Array.isArray(goals) ? goals : []
+  const [points, setPoints] = useState("")
+  const [title, setTitle] = useState("")
+  const [message, setMessage] = useState("")
+  const [editing, setEditing] = useState<Goal | null>(null)
 
   return (
     <main className="flex-1 px-5 py-10 sm:px-8">
@@ -1683,6 +2336,71 @@ function GoalsScreen({
             Sair da área restrita
           </button>
         </div>
+
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault()
+            try {
+              if (editing) {
+                await onUpdate(editing, Number(points), title.trim())
+                setMessage("Meta atualizada com sucesso.")
+              } else {
+                await onCreate(Number(points), title.trim())
+                setMessage("Meta cadastrada com sucesso.")
+              }
+              setPoints("")
+              setTitle("")
+              setEditing(null)
+            } catch {
+              setMessage("Não foi possível salvar a meta.")
+            }
+          }}
+          className="mt-9 grid gap-4 rounded-2xl border border-[#d6e4de] bg-white p-5 md:grid-cols-[0.5fr_1fr_auto]"
+        >
+          <label className="text-xs font-bold text-[#405f55]">
+            Pontos necessários
+            <input
+              type="number"
+              min="0"
+              required
+              value={points}
+              onChange={(event) => setPoints(event.target.value)}
+              className="mt-2 w-full rounded-xl border-2 border-[#b8d0c6] px-4 py-3 text-sm outline-none focus:border-[#116149]"
+            />
+          </label>
+          <label className="text-xs font-bold text-[#405f55]">
+            Título concedido
+            <input
+              required
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              className="mt-2 w-full rounded-xl border-2 border-[#b8d0c6] px-4 py-3 text-sm outline-none focus:border-[#116149]"
+            />
+          </label>
+          <div className="flex items-end gap-2">
+            <button className="h-[46px] rounded-xl border-2 border-[#116149] px-5 text-sm font-extrabold text-[#116149] hover:bg-[#116149] hover:text-white">
+              {editing ? "Salvar alteração" : "Cadastrar meta"}
+            </button>
+            {editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(null)
+                  setPoints("")
+                  setTitle("")
+                }}
+                className="h-[46px] rounded-xl px-3 text-xs font-bold text-[#71867e]"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
+          {message && (
+            <p className="text-xs font-bold text-[#60766e] md:col-span-3">
+              {message}
+            </p>
+          )}
+        </form>
 
         <div className="mt-10 grid gap-5 md:grid-cols-3">
           {safeGoals.map((goal, index) => (
@@ -1719,6 +2437,27 @@ function GoalsScreen({
                 <p className="mt-2 text-sm leading-6 text-[#71867e]">
                   {goal.texto}
                 </p>
+                <div className="mt-5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditing(goal)
+                      setPoints(String(goal.pontuacao))
+                      setTitle(goal.titulo)
+                      window.scrollTo({ top: 0, behavior: "smooth" })
+                    }}
+                    className="rounded-lg border border-[#b8d0c6] px-3 py-2 text-[10px] font-bold text-[#116149]"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(goal)}
+                    className="rounded-lg border border-[#efc7c3] px-3 py-2 text-[10px] font-bold text-[#b3453f]"
+                  >
+                    Excluir
+                  </button>
+                </div>
               </div>
             </article>
           ))}
@@ -1748,6 +2487,7 @@ export default function App() {
   const [scoreUnlocked, setScoreUnlocked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [apiError, setApiError] = useState("")
+  const [welcomeGranted, setWelcomeGranted] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1798,7 +2538,12 @@ export default function App() {
           throw new Error("A API retornou dados em um formato inesperado.")
         }
 
-        setStudents(studentsData)
+        setStudents(
+          (studentsData as Student[]).map((student, index) => ({
+            ...student,
+            legacyId: student.id === undefined ? String(index + 1) : undefined,
+          })),
+        )
         setApiBooks(booksData)
         setCoordinators(coordinatorsData)
         setGoals(goalsData)
@@ -1816,10 +2561,41 @@ export default function App() {
     return () => controller.abort()
   }, [])
 
-  const studentLogin = (student: Student) => {
+  const studentLogin = async (student: Student) => {
     setCurrentCoordinator(null)
     setCurrentStudent(student)
     setScoreUnlocked(false)
+    setWelcomeGranted(false)
+    setScreen("studentHome")
+
+    const alreadyGranted = apiBooks.some(
+      (book) =>
+        isStudentRecord(book, student) && book.tipo === "bonus_boas_vindas",
+    )
+    if (alreadyGranted) return
+
+    const bonus: ApiBook = {
+      titulo: "__BONUS_BOAS_VINDAS__",
+      autor: "Sistema",
+      nota: "0",
+      id_aluno: studentKey(student),
+      tipo: "bonus_boas_vindas",
+      pontos: 10,
+      data_registro: new Date().toISOString(),
+    }
+    try {
+      const response = await fetch(`${API_URL}/livros`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bonus),
+      })
+      if (!response.ok) throw new Error("Falha ao registrar bônus.")
+      const created = (await response.json()) as ApiBook
+      setApiBooks((current) => [...current, created])
+      setWelcomeGranted(true)
+    } catch {
+      setApiError("Não foi possível registrar os pontos de boas-vindas.")
+    }
   }
 
   const clearStudent = () => {
@@ -1836,13 +2612,106 @@ export default function App() {
     setCurrentStudent(null)
     setScoreUnlocked(false)
     setCurrentCoordinator(coordinator)
-    setScreen("goals")
+    setScreen("students")
   }
 
   const coordinatorLogout = () => {
     setCurrentCoordinator(null)
     setScreen("checkin")
   }
+
+  const addStudent = async (student: Student) => {
+    const response = await fetch(`${API_URL}/estudantes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(student),
+    })
+    if (!response.ok) throw new Error("Falha ao cadastrar aluno.")
+    const created = (await response.json()) as Student
+    setStudents((current) => [...current, created])
+  }
+
+  const removeStudent = async (student: Student) => {
+    if (student.id !== undefined) {
+      const response = await fetch(
+        `${API_URL}/estudantes/${encodeURIComponent(String(student.id))}`,
+        { method: "DELETE" },
+      )
+      if (response.ok) {
+        setStudents((current) =>
+          current.filter((item) => item.matricula !== student.matricula),
+        )
+        return
+      }
+    }
+
+    const marker: ApiBook = {
+      titulo: "__ALUNO_REMOVIDO__",
+      autor: "Sistema",
+      nota: "0",
+      id_aluno: studentKey(student),
+      tipo: "aluno_removido",
+      pontos: 0,
+      data_registro: new Date().toISOString(),
+    }
+    const response = await fetch(`${API_URL}/livros`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(marker),
+    })
+    if (!response.ok) throw new Error("Falha ao remover aluno.")
+    const created = (await response.json()) as ApiBook
+    setApiBooks((current) => [...current, created])
+  }
+
+  const createGoal = async (points: number, title: string) => {
+    const response = await fetch(`${API_URL}/metas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pontuacao: points,
+        titulo: title,
+        texto: `Título concedido ao alcançar ${points} pontos.`,
+      }),
+    })
+    if (!response.ok) throw new Error("Falha ao cadastrar meta.")
+    const created = (await response.json()) as Goal
+    setGoals((current) => [...current, created])
+  }
+
+  const updateGoal = async (goal: Goal, points: number, title: string) => {
+    const response = await fetch(`${API_URL}/metas/${goal.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pontuacao: points,
+        titulo: title,
+        texto: `Título concedido ao alcançar ${points} pontos.`,
+      }),
+    })
+    if (!response.ok) throw new Error("Falha ao atualizar meta.")
+    const updated = (await response.json()) as Goal
+    setGoals((current) =>
+      current.map((item) => (item.id === goal.id ? updated : item)),
+    )
+  }
+
+  const deleteGoal = async (goal: Goal) => {
+    if (!window.confirm(`Excluir a meta “${goal.titulo}”?`)) return
+    const response = await fetch(`${API_URL}/metas/${goal.id}`, {
+      method: "DELETE",
+    })
+    if (!response.ok) throw new Error("Falha ao excluir meta.")
+    setGoals((current) => current.filter((item) => item.id !== goal.id))
+  }
+
+  const visibleStudents = students.filter(
+    (student) =>
+      !apiBooks.some(
+        (book) =>
+          book.tipo === "aluno_removido" && isStudentRecord(book, student),
+      ),
+  )
 
   return (
     <div className="flex min-h-screen flex-col bg-[#fbfcfb] text-[#123e32]">
@@ -1855,17 +2724,33 @@ export default function App() {
       />
       {screen === "checkin" && (
         <CheckInScreen
-          students={students}
+          students={visibleStudents}
           apiBooks={apiBooks}
           coordinators={coordinators}
           loading={loading}
           apiError={apiError}
           currentStudent={currentStudent}
+          welcomeGranted={welcomeGranted}
           onIdentify={studentLogin}
           onCoordinatorLogin={coordinatorLogin}
           onBack={clearStudent}
-          onContinue={() => setScreen("books")}
+          onContinue={() => setScreen("studentHome")}
           onOpenLibrary={() => setScreen("library")}
+        />
+      )}
+      {screen === "studentHome" && currentStudent && (
+        <StudentHomeScreen
+          student={currentStudent}
+          students={visibleStudents}
+          books={apiBooks}
+          goals={goals}
+          welcomeGranted={welcomeGranted}
+          onEvaluate={() => setScreen("library")}
+          onHistory={() => setScreen("history")}
+          onLogout={() => {
+            clearStudent()
+            setScreen("checkin")
+          }}
         />
       )}
       {screen === "books" && currentStudent && (
@@ -1878,6 +2763,13 @@ export default function App() {
           onBookSaved={(book) => setApiBooks((current) => [...current, book])}
         />
       )}
+      {screen === "history" && currentStudent && (
+        <ReadingHistoryScreen
+          student={currentStudent}
+          students={visibleStudents}
+          books={apiBooks}
+        />
+      )}
       {screen === "score" && currentStudent && scoreUnlocked && (
         <StudentScoreScreen
           student={currentStudent}
@@ -1887,9 +2779,20 @@ export default function App() {
       )}
       {screen === "frequency" && currentCoordinator && (
         <FrequencyScreen
-          students={students}
+          students={visibleStudents}
+          books={apiBooks}
           currentStudent={currentStudent}
           onBack={() => setScreen("goals")}
+        />
+      )}
+      {screen === "students" && currentCoordinator && (
+        <AdminStudentsScreen
+          students={visibleStudents}
+          books={apiBooks}
+          goals={goals}
+          onAdd={addStudent}
+          onRemove={removeStudent}
+          onLogout={coordinatorLogout}
         />
       )}
       {screen === "goals" && currentCoordinator && (
@@ -1897,6 +2800,9 @@ export default function App() {
           goals={goals}
           coordinator={currentCoordinator}
           onLogout={coordinatorLogout}
+          onCreate={createGoal}
+          onUpdate={updateGoal}
+          onDelete={deleteGoal}
         />
       )}
       <footer className="border-t border-[#e0e9e5] px-5 py-4 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8a9b95]">
