@@ -282,6 +282,11 @@ O servidor Vite usa a variável `PORT` quando definida; caso contrário, usa a
 porta `8443`. Para evitar conflitos, feche o processo que ocupa a porta ou
 defina uma porta alternativa antes de iniciar o servidor.
 
+Para permitir acesso ao servidor Vite pelo domínio publicado no Render,
+`bibliotecacontroledevisitas.onrender.com` está listado em `server.allowedHosts`
+em `vite.config.ts`. Se o domínio do serviço mudar, atualize essa lista e faça
+um novo deploy.
+
 ## Limitações conhecidas
 
 - **Autenticação administrativa:** a interface carrega a lista de coordenadores
