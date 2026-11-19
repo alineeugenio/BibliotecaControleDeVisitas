@@ -48,7 +48,7 @@ type Goal = {
 }
 
 const API_URL = "https://desafio-biblioteca-api.onrender.com"
-const REVIEW_POINTS = 10
+const REVIEW_POINTS = 50
 const makeApiRecordId = () => crypto.randomUUID()
 
 const studentKey = (student: Student) =>
@@ -177,7 +177,6 @@ function Header({
     ? [
         { id: "students", label: "Alunos" },
         { id: "goals", label: "Metas" },
-        { id: "frequency", label: "Frequência" },
       ]
     : studentLoggedIn
       ? [
@@ -188,7 +187,7 @@ function Header({
             ? [{ id: "score" as Screen, label: "Pontuação" }]
             : []),
         ]
-      : [{ id: "checkin", label: "Entrada" }]
+      : []
 
   return (
     <header className="border-b border-[#dbe7e0] bg-white">
@@ -222,7 +221,43 @@ function Header({
           </span>
         </button>
 
-        <nav className="hidden items-center gap-2 sm:flex" aria-label="Etapas">
+        {steps.length > 0 && (
+          <nav
+            className="hidden items-center gap-2 sm:flex"
+            aria-label="Etapas"
+          >
+            {steps.map((step, index) => {
+              const active = step.id === screen
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => onNavigate(step.id)}
+                  className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition ${
+                    active
+                      ? "bg-[#eef7f2] text-[#116149]"
+                      : "text-[#7a8e87] hover:text-[#116149]"
+                  }`}
+                >
+                  <span
+                    className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] ${
+                      active ? "border-[#116149]" : "border-[#cad8d2]"
+                    }`}
+                  >
+                    {index + 1}
+                  </span>
+                  {step.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
+      </div>
+      {steps.length > 0 && (
+        <nav
+          className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-5 pb-3 sm:hidden"
+          aria-label="Etapas"
+        >
           {steps.map((step, index) => {
             const active = step.id === screen
             return (
@@ -230,10 +265,8 @@ function Header({
                 key={step.id}
                 type="button"
                 onClick={() => onNavigate(step.id)}
-                className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition ${
-                  active
-                    ? "bg-[#eef7f2] text-[#116149]"
-                    : "text-[#7a8e87] hover:text-[#116149]"
+                className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition ${
+                  active ? "bg-[#eef7f2] text-[#116149]" : "text-[#7a8e87]"
                 }`}
               >
                 <span
@@ -248,38 +281,7 @@ function Header({
             )
           })}
         </nav>
-
-        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#b9d1c7] text-[#116149]">
-          <Icon name="user" className="h-4 w-4" />
-        </div>
-      </div>
-      <nav
-        className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-5 pb-3 sm:hidden"
-        aria-label="Etapas"
-      >
-        {steps.map((step, index) => {
-          const active = step.id === screen
-          return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => onNavigate(step.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition ${
-                active ? "bg-[#eef7f2] text-[#116149]" : "text-[#7a8e87]"
-              }`}
-            >
-              <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] ${
-                  active ? "border-[#116149]" : "border-[#cad8d2]"
-                }`}
-              >
-                {index + 1}
-              </span>
-              {step.label}
-            </button>
-          )
-        })}
-      </nav>
+      )}
     </header>
   )
 }
@@ -316,7 +318,7 @@ function CheckInScreen({
     "student",
   )
   const [registration, setRegistration] = useState("")
-  const [firstName, setFirstName] = useState("")
+  const [studentName, setStudentName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loginError, setLoginError] = useState("")
@@ -387,17 +389,27 @@ function CheckInScreen({
       return
     }
 
-    const normalizedFirstName = firstName.trim().toLocaleLowerCase("pt-BR")
+    const normalizedStudentName = studentName
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLocaleLowerCase("pt-BR")
     const student = safeStudents.find(
-      (item) =>
-        item.matricula === registration.trim() &&
-        item.nome.split(" ")[0].toLocaleLowerCase("pt-BR") ===
-          normalizedFirstName,
+      (item) => {
+        const normalizedName = item.nome
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLocaleLowerCase("pt-BR")
+        return (
+          item.matricula === registration.trim() &&
+          (normalizedName === normalizedStudentName ||
+            normalizedName.split(" ")[0] === normalizedStudentName)
+        )
+      },
     )
 
     if (!student) {
       setLoginError(
-        "Matrícula ou primeiro nome não encontrados. Confira os dados e tente novamente.",
+        "Matrícula ou nome não encontrados. Confira os dados e tente novamente.",
       )
       return
     }
@@ -462,11 +474,11 @@ function CheckInScreen({
                 </h2>
                 <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-[#71847e]">
                   {loginMode === "student"
-                    ? "Informe sua matrícula e seu primeiro nome para registrar a visita."
+                    ? "Informe sua matrícula e seu primeiro nome ou nome completo para registrar a visita."
                     : "Entre com o e-mail e a senha cadastrados para acessar as metas."}
                 </p>
 
-                <div className="mt-6 grid grid-cols-2 rounded-xl bg-[#eef4f1] p-1">
+                <div className="mt-6 grid grid-cols-[1fr_auto] items-center gap-1 rounded-xl bg-[#eef4f1] p-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -487,10 +499,10 @@ function CheckInScreen({
                       setLoginMode("coordinator")
                       setLoginError("")
                     }}
-                    className={`rounded-lg px-3 py-2.5 text-[10px] font-bold opacity-55 transition hover:opacity-100 ${
+                    className={`rounded-lg px-2 py-2.5 text-[10px] font-medium text-[#71847e] transition hover:text-[#405f55] hover:underline hover:underline-offset-4 ${
                       loginMode === "coordinator"
-                        ? "bg-white text-[#116149] opacity-100 shadow-sm"
-                        : "text-[#71847e]"
+                        ? "font-bold text-[#116149] underline underline-offset-4"
+                        : ""
                     }`}
                   >
                     Acesso administrativo
@@ -523,16 +535,16 @@ function CheckInScreen({
                       </div>
                       <div>
                         <label
-                          htmlFor="first-name"
+                          htmlFor="student-name"
                           className="mb-2 block text-xs font-extrabold text-[#405f55]"
                         >
-                          Primeiro nome
+                          Nome do aluno
                         </label>
                         <input
-                          id="first-name"
-                          value={firstName}
-                          onChange={(event) => setFirstName(event.target.value)}
-                          placeholder="Ex.: Marina"
+                          id="student-name"
+                          value={studentName}
+                          onChange={(event) => setStudentName(event.target.value)}
+                          placeholder="Ex.: Marina Silva"
                           className="w-full rounded-xl border-2 border-[#b8d0c6] bg-white px-4 py-3 text-sm font-semibold text-[#123e32] outline-none transition placeholder:font-normal placeholder:text-[#9aaba5] focus:border-[#116149] focus:ring-4 focus:ring-[#116149]/10"
                         />
                       </div>
@@ -587,7 +599,7 @@ function CheckInScreen({
                     disabled={
                       loading ||
                       (loginMode === "student"
-                        ? !registration.trim() || !firstName.trim()
+                        ? !registration.trim() || !studentName.trim()
                         : !email.trim() || !password)
                     }
                     className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-[#116149] bg-white px-5 py-3.5 text-sm font-extrabold text-[#116149] transition hover:bg-[#116149] hover:text-white focus:outline-none focus:ring-4 focus:ring-[#116149]/15 disabled:cursor-not-allowed disabled:border-[#c7d4cf] disabled:text-[#9aaba5] disabled:hover:bg-white"
@@ -1554,28 +1566,94 @@ function BookCover({
   coverId,
   coverUrl,
   title,
+  author,
+  lookupMissingCover = false,
   className,
 }: {
   coverId?: number | null
   coverUrl?: string
   title: string
+  author?: string
+  lookupMissingCover?: boolean
   className: string
 }) {
+  const [discoveredCoverId, setDiscoveredCoverId] = useState<number | null>(
+    null,
+  )
+  const [coverLoadFailed, setCoverLoadFailed] = useState(false)
+  const [lookupFailed, setLookupFailed] = useState(false)
+
+  useEffect(() => {
+    if (!lookupMissingCover || coverUrl || coverId || !title.trim()) return
+
+    const controller = new AbortController()
+    const lookupCover = async () => {
+      try {
+        const params = new URLSearchParams({
+          title,
+          limit: "5",
+          fields: "cover_i",
+        })
+        if (author?.trim()) params.set("author", author)
+
+        const response = await fetch(
+          `https://openlibrary.org/search.json?${params}`,
+          { signal: controller.signal },
+        )
+        if (!response.ok) {
+          throw new Error("A busca pela capa do livro não pôde ser concluída.")
+        }
+
+        const data: unknown = await response.json()
+        if (
+          typeof data !== "object" ||
+          data === null ||
+          !("docs" in data) ||
+          !Array.isArray(data.docs)
+        ) {
+          throw new Error("A Open Library retornou dados inesperados.")
+        }
+
+        const bookWithCover = data.docs.find(
+          (item): item is { cover_i: number } =>
+            typeof item === "object" &&
+            item !== null &&
+            "cover_i" in item &&
+            typeof item.cover_i === "number",
+        )
+        if (bookWithCover) setDiscoveredCoverId(bookWithCover.cover_i)
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        setLookupFailed(true)
+      }
+    }
+
+    lookupCover()
+    return () => controller.abort()
+  }, [author, coverId, coverUrl, lookupMissingCover, title])
+
   const persistentUrl =
     coverUrl ||
-    (coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : "")
+    (coverId || discoveredCoverId
+      ? `https://covers.openlibrary.org/b/id/${coverId ?? discoveredCoverId}-M.jpg`
+      : "")
 
-  return persistentUrl ? (
+  return persistentUrl && !coverLoadFailed ? (
     <img
       src={persistentUrl}
       alt={`Capa de ${title}`}
       loading="lazy"
+      onError={() => setCoverLoadFailed(true)}
       className={`${className} rounded-md object-cover shadow-md`}
     />
   ) : (
     <div
       className={`${className} flex items-center justify-center rounded-md bg-[#116149] p-3 text-center text-xs font-black text-white shadow-md`}
-      aria-label={`Capa não disponível para ${title}`}
+      aria-label={
+        lookupFailed
+          ? `Não foi possível carregar a capa de ${title}`
+          : `Capa não disponível para ${title}`
+      }
     >
       {title}
     </div>
@@ -1721,7 +1799,7 @@ function StudentScoreScreen({
                 {safePoints}
               </p>
               <p className="mt-2 text-sm text-white/70">
-                Inclui os 10 pontos desta visita
+                Você ganha 50 pontos por livro avaliado
               </p>
             </div>
             {nextGoal ? (
@@ -2262,24 +2340,36 @@ function AdminStudentDetails({
             history.map((book, index) => (
               <div
                 key={book.id ?? `${book.titulo}-${index}`}
-                className="rounded-xl border border-[#d6e4de] p-4"
+                className="flex gap-4 rounded-xl border border-[#d6e4de] p-4"
               >
-                <div className="flex justify-between gap-4">
-                  <div>
-                    <strong className="text-sm text-[#123e32]">
-                      {book.titulo}
-                    </strong>
-                    <p className="mt-1 text-xs text-[#71867e]">{book.autor}</p>
+                <BookCover
+                  coverId={book.capa_id}
+                  coverUrl={book.capa_url}
+                  title={book.titulo}
+                  author={book.autor}
+                  lookupMissingCover
+                  className="h-28 w-[4.5rem] shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex justify-between gap-4">
+                    <div className="min-w-0">
+                      <strong className="text-sm text-[#123e32]">
+                        {book.titulo}
+                      </strong>
+                      <p className="mt-1 text-xs text-[#71867e]">
+                        {book.autor}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-black text-[#d94c47]">
+                      {book.avaliacao ?? Number.parseInt(book.nota, 10)}/10
+                    </span>
                   </div>
-                  <span className="font-black text-[#d94c47]">
-                    {book.avaliacao ?? Number.parseInt(book.nota, 10)}/10
-                  </span>
+                  <p className="mt-3 text-xs leading-5 text-[#60766e]">
+                    {book.comentario ||
+                      book.nota.split(" - ").slice(1).join(" - ") ||
+                      "Sem comentário."}
+                  </p>
                 </div>
-                <p className="mt-3 text-xs leading-5 text-[#60766e]">
-                  {book.comentario ||
-                    book.nota.split(" - ").slice(1).join(" - ") ||
-                    "Sem comentário."}
-                </p>
               </div>
             ))
           ) : (
